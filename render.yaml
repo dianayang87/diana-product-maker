@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: diana-product-name-maker
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
