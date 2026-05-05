@@ -552,13 +552,27 @@ async function fetchNaverKeywords(q, id, sec){
   return result;
 }
 
-// ── Claude API 호출 ──
-async function callClaude(claudeKey,model,messages,maxTokens=1000){
+// ── Claude API 호출 (Rate Limit 자동 재시도) ──
+async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0){
   const r=await fetch('/api/claude',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({claudeKey, model, max_tokens:maxTokens, messages})
   });
+
+  // Rate Limit (429) → 자동 대기 후 재시도
+  if(r.status===429){
+    if(retryCount>=5)throw new Error('Rate Limit 초과 — 잠시 후 다시 시도해주세요');
+    const waitSec=[10,20,30,45,60][retryCount];
+    const progEl=document.getElementById('progText');
+    for(let i=waitSec;i>0;i--){
+      if(shouldStop)throw new Error('중지됨');
+      if(progEl)progEl.textContent=`⏳ Rate Limit — ${i}초 후 자동 재시도... (${retryCount+1}/5)`;
+      await new Promise(res=>setTimeout(res,1000));
+    }
+    return callClaude(claudeKey,model,messages,maxTokens,retryCount+1);
+  }
+
   if(!r.ok)throw new Error(`API 오류 ${r.status}`);
   const d=await r.json();
   apiCallCount++;
