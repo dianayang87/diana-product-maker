@@ -93,7 +93,7 @@ textarea::placeholder,input::placeholder{color:var(--text3)}
 .progress-info{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .progress-text{font-size:12px;color:var(--text2)}
 .progress-pct{font-size:13px;font-family:'DM Mono',monospace;color:var(--pink);font-weight:500}
-.cost-tracker{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:var(--bg3);border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)}
+.cost-tracker{display:grid;grid-template-columns:repeat(5,1fr);gap:0;background:var(--bg3);border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)}
 .cost-item{padding:9px 10px;text-align:center;border-right:1px solid var(--border)}
 .cost-item:last-child{border-right:none}
 .cost-label{display:block;font-size:10px;font-weight:700;color:var(--text3);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:3px}
@@ -307,6 +307,7 @@ input[type=range]{flex:1;accent-color:var(--pink);height:5px;cursor:pointer}
     <div class="cost-item"><span class="cost-label">처리 토큰</span><span class="cost-val" id="costTokens">0</span></div>
     <div class="cost-item"><span class="cost-label">예상 비용</span><span class="cost-val cost-money" id="costMoney">0원</span></div>
     <div class="cost-item"><span class="cost-label">개당 평균</span><span class="cost-val" id="costPer">-</span></div>
+    <div class="cost-item"><span class="cost-label">DataLab 절감</span><span class="cost-val" id="costCache" style="color:var(--green)">-</span></div>
   </div>
 </div>
 
@@ -469,6 +470,9 @@ function updateCost(){
   document.getElementById('costTokens').textContent=(apiInputTokens+apiOutputTokens).toLocaleString();
   document.getElementById('costMoney').textContent=krw.toLocaleString()+'원';
   document.getElementById('costPer').textContent=done>0?Math.round(krw/done)+'원/개':'-';
+  const cacheSize=Object.keys(naverKeywordCache).length;
+  const cacheEl=document.getElementById('costCache');
+  if(cacheEl) cacheEl.textContent=cacheSize>0?cacheSize+'개 카테고리 캐시':'-';
 }
 
 // ── 네이버 API ──
@@ -484,7 +488,7 @@ async function fetchShoppingCandidates(q, id, sec){
     const freq={};
     words.forEach(w=>{const k=w.toLowerCase();freq[k]=(freq[k]||0)+1;});
     // 빈도 높은 상위 15개 후보 키워드 반환
-    return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,15).map(e=>e[0]);
+    return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,5).map(e=>e[0]);
   }catch(e){return[];}
 }
 
@@ -498,8 +502,7 @@ async function fetchDatalabSearchVolume(keywords, id, sec){
 
   const volumeMap={};
   // 5개씩 나눠서 요청 (API 최대 5개)
-  const chunks=[];
-  for(let i=0;i<keywords.length;i+=5)chunks.push(keywords.slice(i,i+5));
+  const chunks=[keywords.slice(0,5)]; // 최대 5개만 1회 호출
 
   for(const chunk of chunks){
     try{
@@ -525,23 +528,28 @@ async function fetchDatalabSearchVolume(keywords, id, sec){
   return volumeMap;
 }
 
-// 메인: 쇼핑검색 + DataLab 결합해서 검색량 높은 키워드 반환
+// 카테고리 키워드 캐시 (DataLab 호출 횟수 최소화)
+const naverKeywordCache={};
+function extractCategoryKey(q){
+  const words=q.split(' ').filter(w=>w.length>=2);
+  return words.slice(0,2).join(' ').toLowerCase();
+}
+// 메인: 쇼핑검색 + DataLab 결합 + 카테고리 캐싱
 async function fetchNaverKeywords(q, id, sec){
   if(!id||!sec)return[];
-  // 1단계: 후보 키워드 추출
+  const cacheKey=extractCategoryKey(q);
+  if(naverKeywordCache[cacheKey]) return naverKeywordCache[cacheKey];
   const candidates=await fetchShoppingCandidates(q,id,sec);
   if(!candidates.length)return[];
-  // 2단계: DataLab으로 실제 검색량 비교
   const volumeMap=await fetchDatalabSearchVolume(candidates,id,sec);
-  // 3단계: 검색량 기준 정렬 후 상위 8개 반환
+  let result;
   if(Object.keys(volumeMap).length>0){
-    const sorted=candidates
-      .map(kw=>({kw,vol:volumeMap[kw]||0}))
-      .sort((a,b)=>b.vol-a.vol);
-    return sorted.slice(0,8).map(x=>x.kw);
+    result=candidates.map(kw=>({kw,vol:volumeMap[kw]||0})).sort((a,b)=>b.vol-a.vol).slice(0,5).map(x=>x.kw);
+  } else {
+    result=candidates.slice(0,5);
   }
-  // DataLab 실패 시 쇼핑 검색 빈도 기반으로 폴백
-  return candidates.slice(0,8);
+  naverKeywordCache[cacheKey]=result;
+  return result;
 }
 
 // ── Claude API 호출 ──
@@ -831,6 +839,8 @@ async function startJob(){
 
   shouldStop=false;isRunning=true;
   apiCallCount=0;apiInputTokens=0;apiOutputTokens=0;
+  // 새 작업 시작 시 캐시 초기화
+  Object.keys(naverKeywordCache).forEach(k=>delete naverKeywordCache[k]);
   results=lines.map(orig=>({orig,result:'',status:'wait'}));
 
   document.getElementById('gbtn').disabled=true;document.getElementById('gbtn').textContent='처리 중...';
