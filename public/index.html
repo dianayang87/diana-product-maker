@@ -330,6 +330,7 @@ input[type=range]{flex:1;accent-color:var(--pink);height:5px;cursor:pointer}
     <button class="filter-btn overlap-f" id="fOverlap" onclick="setFilter('overlap',this)">🔁 중복률 70%↑</button>
     <button class="filter-btn repeat-f" id="fRepeat" onclick="setFilter('repeat',this)">⚠ 중복단어</button>
     <button class="retry-btn" id="retryBtn" onclick="retryFiltered()">↺ 재시도</button>
+    <button class="retry-btn" id="retrySelectedBtn" onclick="retrySelected()" style="display:none;background:rgba(232,100,138,0.12);border-color:rgba(232,100,138,0.35);color:var(--pink)">✏️ 선택 재작업 <span id="selectedCount"></span></button>
   </div>
 </div>
 
@@ -337,12 +338,13 @@ input[type=range]{flex:1;accent-color:var(--pink);height:5px;cursor:pointer}
 <div class="table-wrap" id="tableWrap">
   <table>
     <thead><tr>
-      <th style="width:42px">번호</th>
-      <th style="width:34%">원본 상품명</th>
-      <th style="width:34%">변환 상품명</th>
+      <th style="width:36px"><input type="checkbox" id="checkAll" onclick="toggleCheckAll(this)" style="cursor:pointer;accent-color:var(--pink)"></th>
+      <th style="width:38px">번호</th>
+      <th style="width:32%">원본 상품명</th>
+      <th style="width:32%">변환 상품명</th>
       <th style="width:52px">글자수</th>
-      <th style="width:56px">중복률</th>
-      <th style="width:62px">상태</th>
+      <th style="width:52px">중복률</th>
+      <th style="width:58px">상태</th>
     </tr></thead>
     <tbody id="tbody"><tr><td colspan="6" style="text-align:center;color:var(--text3);padding:2.5rem;font-size:13px">🌸 상품명을 입력하고 생성을 시작하세요</td></tr></tbody>
   </table>
@@ -357,6 +359,7 @@ const PRICES={'claude-sonnet-4-20250514':{in:3.00,out:15.00},'claude-haiku-4-5-2
 // ── 상태 ──
 let UF=[],mode='basic',quality='mixed',results=[],shouldStop=false,currentFilter='all',isRunning=false;
 let apiCallCount=0,apiInputTokens=0,apiOutputTokens=0,lastModel='claude-sonnet-4-20250514';
+let selectedRows=new Set();
 
 // ── 초기화 ──
 async function testNaverAPI(){
@@ -601,7 +604,7 @@ async function convertBatch(origList,claudeKey,nid,nsec,model){
 아래 ${origList.length}개의 원본 상품명을 각각 변환해주세요.
 생성 방식: ${mDesc[mode]}${naverSection}
 
-⚠️ 핵심 지시: 원본 단어를 순서만 바꾸는 것은 절대 금지. 원본 단어의 ${overlapTarget}%만 유지하고 나머지는 완전히 다른 새 키워드로 교체할 것.
+⚠️ 핵심 지시: 원본 단어를 순서만 바꾸는 것은 절대 금지. 원본 단어의 ${overlapTarget}%만 유지하고 나머지는 완전히 다른 새 키워드로 교체할 것. 또한 원본 앞 1~2단어가 변환 후에도 동일하게 맨 앞에 오지 않도록 앞쪽 단어 순서를 자연스럽게 섞을 것.
 
 [절대 금지 단어] ${forbidden.join(', ')}
 
@@ -622,9 +625,14 @@ R2. 어근 반복 금지 (각 항목 생성 후 반드시 점검):
       ✗ "바테이블 하이테이블 벽테이블" → 테이블 3회 → 1개 제거
       ✓ "스포츠 스포츠웨어 남성 반팔" → 스포츠 2회 → 허용
 
-R3. 임의 규격 추가 금지:
-    - 원본에 없는 숫자/규격/피스수/용량/인원수 추가 금지.
-    - 예) 원본"직소퍼즐" → "직소퍼즐 1000피스" (금지)
+R3. 임의 숫자/규격 추가 절대 금지:
+    - 원본 상품명에 없는 숫자, 규격, 등급, 피스수, 용량, 인원수, 치수 추가 금지.
+    - 숫자가 들어간 단어는 원본에 있을 때만 사용 가능.
+    - 나쁜 예: 원본"직소퍼즐" → "직소퍼즐 1000피스" (1000피스 없음 → 금지)
+    - 나쁜 예: 원본"스테인리스 쓰레기통" → "스테인리스 쓰레기통 304" (304 없음 → 금지)
+    - 나쁜 예: 원본"텀블러" → "텀블러 500ml" (500ml 없음 → 금지)
+    - 나쁜 예: 원본"식탁" → "4인용 식탁" (4인용 없음 → 금지)
+    - 좋은 예: 원본"500ml 텀블러" → "500ml 텀블러 보온보냉 스테인리스" (원본에 있음 → 허용)
 
 R4. 논리 일관성 및 핵심 속성 유지 (최우선 규칙):
     - 변환 전에 원본 상품의 핵심 속성 단어를 먼저 파악할 것:
@@ -655,7 +663,14 @@ R6. 중복률 (중요 — 단, R4 핵심 속성 유지가 항상 우선):
     - 단, R4에서 파악한 핵심 속성 단어는 중복률 계산에서 제외. 반드시 포함시킬 것.
 
 R7. 금지 단어 포함 절대 불가.
-R8. 자연스러운 한국어, 특수문자 최소화.
+R8. 단어 배치 순서 (중요):
+    - 원본 상품명의 앞 1~2번째 단어가 변환 후에도 동일한 순서로 맨 앞에 오면 안 됨.
+    - 원본의 핵심 키워드는 유지하되, 앞쪽 단어들의 순서를 자연스럽게 섞을 것.
+    - 단, 맨 앞 단어를 맨 뒤로 보내는 것은 금지. 앞쪽 범위(1~4번째) 안에서만 순서 변경.
+    - 나쁜 예: 원본"이동식 스텐 쓰레기통 종량제" → "이동식 스텐 쓰레기통 대형" (앞 3단어 동일 → 금지)
+    - 좋은 예: 원본"이동식 스텐 쓰레기통 종량제" → "스텐 쓰레기통 이동식 대형 휴지통" (순서 섞임 → 허용)
+    - 좋은 예: 원본"업소용 주방 작업대 냄비" → "주방 업소용 스텐 작업대 조리대" (앞쪽 셔플 → 허용)
+R9. 자연스러운 한국어, 특수문자 최소화.
 
 [원본 상품명 목록]
 ${origList.map((n,i)=>`${i+1}. ${n}`).join('\n')}
@@ -867,6 +882,8 @@ async function startJob(){
 
   shouldStop=false;isRunning=true;
   apiCallCount=0;apiInputTokens=0;apiOutputTokens=0;
+  selectedRows=new Set();
+  updateSelectedBtn();
   // 새 작업 시작 시 캐시 초기화
   Object.keys(naverKeywordCache).forEach(k=>delete naverKeywordCache[k]);
   results=lines.map(orig=>({orig,result:'',status:'wait'}));
@@ -956,6 +973,96 @@ async function startJob(){
 function stopJob(){shouldStop=true;document.getElementById('stopbtn').style.display='none';}
 
 // ── 필터 재시도 ──
+// ── 체크박스 관련 ──
+function toggleCheck(idx, el){
+  if(el.checked) selectedRows.add(idx);
+  else selectedRows.delete(idx);
+  updateSelectedBtn();
+  // 전체 체크박스 상태 업데이트
+  const checkAll=document.getElementById('checkAll');
+  if(checkAll){
+    const visibleRows=[...document.querySelectorAll('#tbody tr[id^="tr-"]')]
+      .filter(r=>r.style.display!=='none')
+      .map(r=>parseInt(r.id.replace('tr-','')));
+    checkAll.checked=visibleRows.length>0&&visibleRows.every(i=>selectedRows.has(i));
+    checkAll.indeterminate=visibleRows.some(i=>selectedRows.has(i))&&!checkAll.checked;
+  }
+}
+
+function toggleCheckAll(el){
+  const visibleRows=[...document.querySelectorAll('#tbody tr[id^="tr-"]')]
+    .filter(r=>r.style.display!=='none')
+    .map(r=>parseInt(r.id.replace('tr-','')));
+  if(el.checked) visibleRows.forEach(i=>selectedRows.add(i));
+  else visibleRows.forEach(i=>selectedRows.delete(i));
+  visibleRows.forEach(i=>renderRow(i));
+  updateSelectedBtn();
+}
+
+function updateSelectedBtn(){
+  const btn=document.getElementById('retrySelectedBtn');
+  const cnt=document.getElementById('selectedCount');
+  if(!btn)return;
+  if(selectedRows.size>0){
+    btn.style.display='inline-flex';
+    if(cnt)cnt.textContent=`(${selectedRows.size}개)`;
+  } else {
+    btn.style.display='none';
+  }
+}
+
+async function retrySelected(){
+  if(isRunning){alert('처리 중입니다.');return;}
+  if(selectedRows.size===0){alert('선택된 항목이 없습니다.');return;}
+  const claudeKey=document.getElementById('claudeKey').value.trim();
+  const nid=document.getElementById('nid').value.trim();
+  const nsec=document.getElementById('nsec').value.trim();
+  if(!claudeKey){alert('Claude API 키를 입력해주세요.');return;}
+
+  const targets=[...selectedRows].sort((a,b)=>a-b);
+  isRunning=true;shouldStop=false;
+  const btn=document.getElementById('retrySelectedBtn');
+  btn.disabled=true;btn.textContent='재작업 중...';
+
+  // 선택 항목 초기화
+  targets.forEach(i=>{results[i].status='wait';results[i].result='';renderRow(i);});
+  updateStats();
+
+  const batchSize=parseInt(document.getElementById('batchSize').value);
+  const model='claude-sonnet-4-20250514';
+  const batches=[];
+  for(let i=0;i<targets.length;i+=batchSize)batches.push(targets.slice(i,i+batchSize));
+
+  for(const batch of batches){
+    if(shouldStop)break;
+    batch.forEach(i=>{results[i].status='proc';renderRow(i);});
+    try{
+      const origList=batch.map(i=>results[i].orig);
+      const batchResults=await convertBatch(origList,claudeKey,nid,nsec,model);
+      batch.forEach((ri,bi)=>{
+        const found=batchResults.find(r=>r.i===(bi+1));
+        let name=found?fixLength(found.name||'',results[ri].orig):'';
+        name=autoFixRepeat(name);
+        results[ri].result=name;results[ri].status=name?'done':'error';
+        renderRow(ri);
+      });
+    }catch(e){
+      batch.forEach(i=>{results[i].result='오류: '+e.message;results[i].status='error';renderRow(i);});
+    }
+    updateStats();applyFilter();
+  }
+
+  // 선택 해제
+  selectedRows.clear();
+  targets.forEach(i=>renderRow(i));
+  updateSelectedBtn();
+  const checkAll=document.getElementById('checkAll');
+  if(checkAll)checkAll.checked=false;
+
+  isRunning=false;
+  btn.disabled=false;btn.textContent='✏️ 선택 재작업';
+}
+
 async function retryFiltered(){
   if(isRunning){alert('처리 중입니다.');return;}
   const claudeKey=document.getElementById('claudeKey').value.trim();
