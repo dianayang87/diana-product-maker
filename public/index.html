@@ -793,7 +793,9 @@ function renderRow(idx){
     displayName=hl;
   }
   const rowBg=hasRepeat&&it.status==='done'?'background:rgba(255,193,7,0.05)':'';
-  r.innerHTML=`<td style="color:var(--text3);font-family:'DM Mono',monospace;font-size:12px;${rowBg}">${idx+1}</td>
+  const isChecked=selectedRows.has(idx);
+  r.innerHTML=`<td style="text-align:center"><input type="checkbox" ${isChecked?'checked':''} onchange="toggleCheck(${idx},this)" style="cursor:pointer;accent-color:var(--pink)"></td>
+    <td style="color:var(--text3);font-family:'DM Mono',monospace;font-size:12px">${idx+1}</td>
     <td style="font-size:12px;color:var(--text2)">${escH(it.orig)}</td>
     <td style="font-weight:500">${displayName}${hasRepeat?'<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠ 중복: '+repeatWords.join(', ')+'</div>':''}</td>
     <td style="color:${lenColor};font-family:'DM Mono',monospace;font-size:12px;text-align:center">${it.result?len+'자':''}</td>
