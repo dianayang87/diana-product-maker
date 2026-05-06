@@ -603,37 +603,35 @@ async function convertBatch(origList,claudeKey,nid,nsec,model){
   const prompt=`당신은 네이버 스마트스토어 상품명 최적화 전문가입니다.
 아래 ${origList.length}개의 원본 상품명을 각각 변환해주세요.${naverSection}
 
-[변환 순서 — 반드시 이 순서대로 처리]
+[변환 방식]
 
-STEP 1. 핵심 5단어 추출:
-- 원본 상품명을 공백으로 나눠서 앞에서 5단어를 추출.
-- 이 5단어는 변환 후에도 반드시 모두 포함. 절대 누락 금지.
-- 5단어의 순서를 1~4번째 범위 안에서 자연스럽게 섞을 것 (맨 앞 단어를 맨 뒤로 보내는 것은 금지).
+STEP 1. 핵심 5단어 추출 및 셔플:
+- 원본을 공백으로 나눠 앞에서 5단어 추출. 이 5단어는 반드시 모두 포함.
+- 5단어를 1~4번째 범위 안에서 순서를 섞을 것. 예) "A B C D E" → "B A C D E" 또는 "C B A D E"
+- 맨 앞 단어를 맨 뒤로 보내는 것은 금지.
 
-STEP 2. 나머지 자리 채우기:
-- 목표 글자수 40~45자에서 STEP1 글자수를 뺀 나머지 자리를 채울 것.
-- 채울 단어 우선순위:
-  1순위: 제공된 네이버 실검색 인기 키워드
-  2순위: Claude가 추천하는 관련 검색 키워드
-- 단, 아래 조건을 만족하는 단어만 사용 가능:
-  ✓ 원본 상품과 논리적으로 관련 있는 단어
-  ✓ 원본에서 유추 가능한 속성 (소재/용도/특징 등)
-  ✗ 원본에 없는 소재/규격/수치 추가 금지 (예: 원목, 304, 500ml, 32인치)
-  ✗ 원본 상품과 논리 충돌하는 단어 금지 (예: 변기에 캠핑, 조화에 배터리)
-  ✗ IP/브랜드명 금지 (삼성, LG, 신일 등 특정 브랜드)
+STEP 2. 나머지 자리 채우기 (목표 글자수 40~45자):
+- STEP1 결과 뒤에 새로운 키워드를 붙여서 40~45자를 채울 것.
+- ⚠️ 원본 상품명에 있는 단어(6번째 이후 포함)는 절대 재사용 금지. 반드시 새 단어만 사용.
+- 새 단어 선택 우선순위:
+  1순위: 제공된 네이버 실검색 인기 키워드 중 원본 상품과 관련된 것
+  2순위: 원본 상품의 용도/특징과 관련된 Claude 추천 검색 키워드
+- 단, 아래 단어는 절대 사용 금지:
+  ✗ 원본 상품명에 이미 있는 단어 (재사용 엄금)
+  ✗ 원본에 없는 소재/규격/수치 (원목, 304, 500ml, 32인치 등)
+  ✗ 원본 상품과 논리 충돌하는 단어 (예: 변기→캠핑, 조화→배터리)
+  ✗ IP/브랜드명 (삼성, LG, 신일 등)
   ✗ 절대 금지 단어: ${forbidden.join(', ')}
 
-[추가 규칙]
+[기타 규칙]
 - 동일 어근 단어 2회 초과 반복 금지
-- 성별(남성↔여성), 연령대(성인↔아동/키즈) 변경 금지
-- 완전히 다른 제품이 되면 안 됨
-
-[글자수] 공백 포함 40자 이상 45자 이하. 이 범위를 벗어나면 안 됨.
+- 성별·연령대 변경 금지
+- 글자수: 공백 포함 반드시 40자 이상 45자 이하
 
 [원본 상품명 목록]
 ${origList.map((n,i)=>`${i+1}. ${n}`).join('\n')}
 
-위 ${origList.length}개를 순서대로 변환하여 아래 JSON만 반환 (다른 텍스트 없이):
+위 ${origList.length}개를 순서대로 변환하여 아래 JSON만 반환:
 {"results":[{"i":1,"name":"변환된상품명"},{"i":2,"name":"변환된상품명"},...]}`;
 
     const txt=await callClaude(claudeKey,model,[{role:'user',content:prompt}],Math.min(origList.length*80+200,4000));
@@ -726,20 +724,8 @@ function fixLength(name, orig){
     name=result||name.substring(0,45).trimEnd();
   }
 
-  // 40자 미달 → 원본 단어로 보충
-  if(name.length<40&&orig){
-    const usedWords=new Set(name.split(/\s+/).map(w=>w.toLowerCase()));
-    const origWords=orig.split(/\s+/).filter(w=>{
-      const k=w.toLowerCase();
-      // 이미 사용된 단어, 금지어, 2자 미만 제외
-      return w.length>=2 && !usedWords.has(k) && !forbidden.some(f=>k.includes(f)||f.includes(k));
-    });
-    for(const w of origWords){
-      const candidate=name+' '+w;
-      if(candidate.length<=45){name=candidate;usedWords.add(w.toLowerCase());}
-      if(name.length>=40)break;
-    }
-  }
+  // 40자 미달이어도 원본 단어 보충 안 함 (중복률 상승 원인)
+  // AI가 새 키워드로 채우도록 프롬프트에서 지시함
 
   return name;
 }
