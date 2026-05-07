@@ -328,6 +328,15 @@ input[type=range]{flex:1;accent-color:var(--pink);height:5px;cursor:pointer}
     <button class="filter-btn err-f" id="fErr" onclick="setFilter('error',this)">⚠ 오류만</button>
     <button class="filter-btn warn-f" id="fWarn" onclick="setFilter('warn',this)">📏 글자수 미달</button>
     <button class="filter-btn overlap-f" id="fOverlap" onclick="setFilter('overlap',this)">🔁 중복률 70%↑</button>
+    <div style="display:inline-flex;align-items:center;gap:5px;background:var(--purple-dim);border:1px solid rgba(127,119,221,0.25);border-radius:20px;padding:3px 10px">
+      <span style="font-size:11px;font-weight:600;color:var(--purple)">중복률</span>
+      <input type="number" id="overlapThreshold" value="70" min="0" max="100" step="5"
+        style="width:44px;background:none;border:none;outline:none;font-size:12px;font-weight:700;color:var(--purple);font-family:'DM Mono',monospace;padding:0;text-align:center"
+        oninput="setFilter('custom',document.getElementById('fCustomOverlap'))">
+      <span style="font-size:11px;font-weight:600;color:var(--purple)">%↑ 선택</span>
+      <button id="fCustomOverlap" onclick="setFilter('custom',this)"
+        style="background:var(--purple);border:none;border-radius:10px;color:white;font-size:10px;font-weight:700;padding:2px 7px;cursor:pointer;font-family:'Noto Sans KR',sans-serif">적용</button>
+    </div>
     <button class="filter-btn repeat-f" id="fRepeat" onclick="setFilter('repeat',this)">⚠ 중복단어</button>
     <button class="retry-btn" id="retryBtn" onclick="retryFiltered()">↺ 재시도</button>
     <button class="retry-btn" id="retrySelectedBtn" onclick="retrySelected()" style="display:none;background:rgba(232,100,138,0.12);border-color:rgba(232,100,138,0.35);color:var(--pink)">✏️ 선택 재작업 <span id="selectedCount"></span></button>
@@ -796,12 +805,17 @@ function applyFilter(){
     else if(currentFilter==='warn')show=lenBad||it.status==='error';
     else if(currentFilter==='overlap')show=ovHigh;
     else if(currentFilter==='repeat')show=it.status==='done'&&hasRpt;
+    else if(currentFilter==='custom'){
+      const threshold=parseInt(document.getElementById('overlapThreshold').value)||70;
+      show=it.status==='done'&&ov>=threshold;
+    }
     row.style.display=show?'':'none';
   });
   // 재시도 버튼 표시
   const hasRetry=results.some(r=>{
     const len=r.result?r.result.length:0;
     const ov=r.result?calcOverlap(r.orig,r.result):0;
+    const customThreshold=parseInt((document.getElementById('overlapThreshold')||{}).value)||70;
     return r.status==='error'||(r.status==='done'&&(len<40||len>45))||(r.status==='done'&&ov>=70)||(r.status==='done'&&checkRepeat(r.result));
   });
   document.getElementById('retryBtn').style.display=(currentFilter!=='all'&&currentFilter!=='done'&&hasRetry)?'inline-flex':'none';
@@ -810,7 +824,7 @@ function applyFilter(){
 function setFilter(f,el){
   currentFilter=f;
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
-  el.classList.add('active');
+  if(el)el.classList.add('active');
   applyFilter();
 }
 
@@ -1027,6 +1041,10 @@ async function retryFiltered(){
     else if(currentFilter==='warn'&&(isErr||lenBad))acc.push(i);
     else if(currentFilter==='overlap'&&ovHigh)acc.push(i);
     else if(currentFilter==='repeat'&&hasRpt)acc.push(i);
+    else if(currentFilter==='custom'){
+      const threshold=parseInt(document.getElementById('overlapThreshold').value)||70;
+      if(it.status==='done'&&ov>=threshold)acc.push(i);
+    }
     return acc;
   },[]);
 
