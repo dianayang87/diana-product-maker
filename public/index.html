@@ -290,7 +290,8 @@ input[type=range]{flex:1;accent-color:var(--pink);height:5px;cursor:pointer}
 
 <!-- 버튼 -->
 <div class="btn-row">
-  <button class="btn-primary" id="gbtn" onclick="startJob()">🌸 상품명 생성 시작</button>
+  <button class="btn-primary" id="gbtn" onclick="startJob(false)">🌸 상품명 생성 시작</button>
+  <button class="btn-primary" id="resumebtn" onclick="startJob(true)" style="display:none;background:linear-gradient(135deg,#5bc4a8,#3daa7a);box-shadow:0 4px 16px rgba(61,170,122,0.3)">▶ 이어서 생성</button>
   <button class="btn-stop" id="stopbtn" onclick="stopJob()">■ 중지</button>
   <button class="btn-excel" id="xlbtn" onclick="saveExcel()">↓ 엑셀 저장</button>
 </div>
@@ -616,9 +617,10 @@ async function convertBatch(origList,claudeKey,nid,nsec,model){
 
 STEP 1. 핵심 5단어 추출 및 부분 셔플:
 - 원본을 공백으로 나눠 앞에서 5단어 추출. 이 5단어는 반드시 모두 포함.
-- 1~3번째 단어는 순서 변경 금지. 반드시 원본 순서 그대로 유지.
-- 4~5번째 단어만 자연스럽게 순서를 바꿀 수 있음.
-- 예) 원본 "A B C D E" → "A B C E D" (4,5번째만 셔플) ✓
+- 1~2번째 단어는 순서 변경 금지. 반드시 원본 순서 그대로 유지.
+- 3~5번째 단어는 자연스럽게 순서를 바꿀 수 있음.
+- 예) 원본 "A B C D E" → "A B D C E" (3,4번째 셔플) ✓
+- 예) 원본 "A B C D E" → "A B E D C" (3,4,5번째 셔플) ✓
 - 예) 원본 "A B C D E" → "B A C D E" (1,2번째 바뀜 → 금지) ✗
 
 STEP 2. 나머지 자리 채우기 (목표 글자수 40~45자):
@@ -831,7 +833,7 @@ function setFilter(f,el){
 }
 
 // ── 배치 처리 메인 ──
-async function startJob(){
+async function startJob(resume=false){
   const lines=getLines();
   if(!lines.length){alert('상품명을 입력해주세요.');return;}
   if(lines.length>1000){alert('최대 1,000개까지 가능합니다.');return;}
@@ -842,14 +844,29 @@ async function startJob(){
   localStorage.setItem('d_ck',claudeKey);
 
   shouldStop=false;isRunning=true;
-  apiCallCount=0;apiInputTokens=0;apiOutputTokens=0;
-  selectedRows=new Set();
-  updateSelectedBtn();
-  // 새 작업 시작 시 캐시 초기화
-  Object.keys(naverKeywordCache).forEach(k=>delete naverKeywordCache[k]);
-  results=lines.map(orig=>({orig,result:'',status:'wait'}));
 
-  document.getElementById('gbtn').disabled=true;document.getElementById('gbtn').textContent='처리 중...';
+  if(!resume){
+    // 새로 시작 — 전체 초기화
+    apiCallCount=0;apiInputTokens=0;apiOutputTokens=0;
+    selectedRows=new Set();
+    updateSelectedBtn();
+    Object.keys(naverKeywordCache).forEach(k=>delete naverKeywordCache[k]);
+    results=lines.map(orig=>({orig,result:'',status:'wait'}));
+  } else {
+    // 이어서 생성 — 미완료(wait/error) 항목만 재처리
+    // 기존 results에서 원본과 매칭, 없으면 새로 추가
+    const existingMap={};
+    results.forEach(r=>existingMap[r.orig]=r);
+    results=lines.map(orig=>{
+      const existing=existingMap[orig];
+      // 완료된 것은 유지, 미완료/오류/없는 것은 대기로
+      if(existing&&existing.status==='done') return existing;
+      return {orig,result:'',status:'wait'};
+    });
+  }
+
+  document.getElementById('gbtn').style.display='none';
+  document.getElementById('resumebtn').style.display='none';
   document.getElementById('stopbtn').style.display='block';
   document.getElementById('xlbtn').style.display='block';
   document.getElementById('progWrap').style.display='block';
@@ -920,7 +937,9 @@ async function startJob(){
   }
 
   isRunning=false;
-  document.getElementById('gbtn').disabled=false;document.getElementById('gbtn').textContent='🌸 상품명 생성 시작';
+  document.getElementById('gbtn').style.display='block';
+  document.getElementById('gbtn').disabled=false;
+  document.getElementById('resumebtn').style.display='none';
   document.getElementById('stopbtn').style.display='none';
   const doneCount=results.filter(r=>r.status==='done').length;
   const p=PRICES[lastModel];
@@ -931,7 +950,16 @@ async function startJob(){
   if(!shouldStop){document.getElementById('progBar').style.width='100%';document.getElementById('progPct').textContent='100%';}
 }
 
-function stopJob(){shouldStop=true;document.getElementById('stopbtn').style.display='none';}
+function stopJob(){
+  shouldStop=true;
+  document.getElementById('stopbtn').style.display='none';
+  document.getElementById('gbtn').style.display='block';
+  // 미완료 항목이 있으면 이어서 생성 버튼 표시
+  const hasWaiting=results.some(r=>r.status==='wait'||r.status==='proc');
+  if(hasWaiting){
+    document.getElementById('resumebtn').style.display='block';
+  }
+}
 
 // ── 필터 재시도 ──
 // ── 체크박스 관련 ──
