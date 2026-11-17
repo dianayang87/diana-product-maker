@@ -570,7 +570,7 @@ async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0){
   const r=await fetch('/api/claude',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({claudeKey, model, max_tokens:maxTokens, messages})
+    body:JSON.stringify({claudeKey, model, max_tokens:maxTokens, thinking:{type:'disabled'}, messages})
   });
 
   // Rate Limit (429) → 자동 대기 후 재시도
@@ -597,7 +597,9 @@ async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0){
   apiOutputTokens+=(d.usage||{}).output_tokens||0;
   lastModel=model;
   updateCost();
-  return(d.content||[]).map(i=>i.text||'').join('').replace(/```json|```/g,'').trim();
+  const out=(d.content||[]).filter(i=>i.type==='text').map(i=>i.text||'').join('').replace(/```json|```/g,'').trim();
+  if(!out)throw new Error(`빈 응답 (stop_reason: ${d.stop_reason||'?'}) — 토큰 한도 부족 가능`);
+  return out;
 }
 
 // ── 배치 변환 핵심 함수 ──
@@ -651,7 +653,7 @@ ${origList.map((n,i)=>`${i+1}. ${n}`).join('\n')}
 위 ${origList.length}개를 순서대로 변환하여 아래 JSON만 반환:
 {"results":[{"i":1,"name":"변환된상품명"},{"i":2,"name":"변환된상품명"},...]}`;
 
-    const txt=await callClaude(claudeKey,model,[{role:'user',content:prompt}],Math.min(origList.length*80+200,4000));
+    const txt=await callClaude(claudeKey,model,[{role:'user',content:prompt}],Math.min(origList.length*120+800,4000));
   let parsed;
   try{parsed=JSON.parse(txt);}
   catch(e){
