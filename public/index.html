@@ -570,7 +570,7 @@ async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0){
   const r=await fetch('/api/claude',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({claudeKey, model, max_tokens:maxTokens, thinking:{type:'disabled'}, messages})
+    body:JSON.stringify({claudeKey, model, max_tokens:maxTokens, thinking:{type:'between_tools'}, messages})
   });
 
   // Rate Limit (429) → 자동 대기 후 재시도
