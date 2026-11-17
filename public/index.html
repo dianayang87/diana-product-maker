@@ -566,11 +566,18 @@ async function fetchNaverKeywords(q, id, sec){
 }
 
 // ── Claude API 호출 (Rate Limit 자동 재시도) ──
-async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0){
+// 모델별로 지원하는 thinking 설정이 달라서, 오류가 나면 다음 방식으로 자동 전환
+const THINK_MODES=['disabled','between_tools','omit'];
+const thinkModeOf={};
+async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0,thinkIdx=null){
+  if(thinkIdx===null)thinkIdx=thinkModeOf[model]!==undefined?thinkModeOf[model]:0;
+  const mode=THINK_MODES[thinkIdx];
+  const reqBody={claudeKey, model, max_tokens:(mode==='omit'?maxTokens+2000:maxTokens), messages};
+  if(mode!=='omit')reqBody.thinking={type:mode};
   const r=await fetch('/api/claude',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({claudeKey, model, max_tokens:maxTokens, thinking:{type:'between_tools'}, messages})
+    body:JSON.stringify(reqBody)
   });
 
   // Rate Limit (429) → 자동 대기 후 재시도
@@ -583,15 +590,19 @@ async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0){
       if(progEl)progEl.textContent=`⏳ Rate Limit — ${i}초 후 자동 재시도... (${retryCount+1}/5)`;
       await new Promise(res=>setTimeout(res,1000));
     }
-    return callClaude(claudeKey,model,messages,maxTokens,retryCount+1);
+    return callClaude(claudeKey,model,messages,maxTokens,retryCount+1,thinkIdx);
   }
 
   let d=null;
   try{d=await r.json();}catch(e){}
   if(!r.ok||!d||d.error||!d.content){
     const msg=(d&&d.error&&(d.error.message||d.error))||`HTTP ${r.status}`;
+    if(typeof msg==='string'&&/thinking/i.test(msg)&&thinkIdx<THINK_MODES.length-1){
+      return callClaude(claudeKey,model,messages,maxTokens,retryCount,thinkIdx+1);
+    }
     throw new Error(`API 오류: ${typeof msg==='string'?msg:JSON.stringify(msg)}`);
   }
+  thinkModeOf[model]=thinkIdx;
   apiCallCount++;
   apiInputTokens+=(d.usage||{}).input_tokens||0;
   apiOutputTokens+=(d.usage||{}).output_tokens||0;
