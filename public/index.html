@@ -364,11 +364,11 @@ input[type=range]{flex:1;accent-color:var(--pink);height:5px;cursor:pointer}
 <script>
 // ── 상수 ──
 const DF=["멜킨","밤까는기계","전선꼬임기","실리콘배변판","우산빗물제거기","어린이","아동","아기","유아","영아","초등학생","유치원","어린이집","덜덜이","자바조이","벽타는산타","고환","전립선","성인용품","19금","sm","바이브레이터","자위","애무","콘돔","러브젤","술","야한","성감대","섹스","성관계","sex","점핑보드","키즈","주니어","육아","출산","남아","여아"];
-const PRICES={'claude-sonnet-4-20250514':{in:3.00,out:15.00},'claude-haiku-4-5-20251001':{in:0.80,out:4.00}};
+const PRICES={'claude-sonnet-5-5':{in:3.00,out:15.00},'claude-haiku-5-5':{in:0.80,out:4.00}}; // 비용은 추정치
 
 // ── 상태 ──
 let UF=[],mode='basic',quality='mixed',results=[],shouldStop=false,currentFilter='all',isRunning=false;
-let apiCallCount=0,apiInputTokens=0,apiOutputTokens=0,lastModel='claude-sonnet-4-20250514';
+let apiCallCount=0,apiInputTokens=0,apiOutputTokens=0,lastModel='claude-sonnet-5-5';
 let selectedRows=new Set();
 
 // ── 초기화 ──
@@ -475,7 +475,7 @@ function calcOverlap(orig,result){
 
 // ── 비용 업데이트 ──
 function updateCost(){
-  const p=PRICES[lastModel]||PRICES['claude-sonnet-4-20250514'];
+  const p=PRICES[lastModel]||PRICES['claude-sonnet-5-5'];
   const usd=(apiInputTokens/1_000_000*p.in)+(apiOutputTokens/1_000_000*p.out);
   const krw=Math.round(usd*1380);
   const done=results.filter(r=>r.status==='done').length;
@@ -586,8 +586,12 @@ async function callClaude(claudeKey,model,messages,maxTokens=1000,retryCount=0){
     return callClaude(claudeKey,model,messages,maxTokens,retryCount+1);
   }
 
-  if(!r.ok)throw new Error(`API 오류 ${r.status}`);
-  const d=await r.json();
+  let d=null;
+  try{d=await r.json();}catch(e){}
+  if(!r.ok||!d||d.error||!d.content){
+    const msg=(d&&d.error&&(d.error.message||d.error))||`HTTP ${r.status}`;
+    throw new Error(`API 오류: ${typeof msg==='string'?msg:JSON.stringify(msg)}`);
+  }
   apiCallCount++;
   apiInputTokens+=(d.usage||{}).input_tokens||0;
   apiOutputTokens+=(d.usage||{}).output_tokens||0;
@@ -880,8 +884,8 @@ async function startJob(resume=false){
   updateStats();
 
   const batchSize=parseInt(document.getElementById('batchSize').value);
-  const model=quality==='haiku'?'claude-haiku-4-5-20251001':'claude-sonnet-4-20250514';
-  const mixedModel='claude-haiku-4-5-20251001';
+  const model=quality==='haiku'?'claude-haiku-5-5':'claude-sonnet-5-5';
+  const mixedModel='claude-haiku-5-5';
 
   // 배치 인덱스 생성
   const batches=[];
@@ -921,7 +925,7 @@ async function startJob(resume=false){
         if(needFix.length>0){
           needFix.forEach(i=>{results[i].status='proc';renderRow(i);});
           const fixOrigList=needFix.map(i=>results[i].orig);
-          const fixResults=await convertBatch(fixOrigList,claudeKey,nid,nsec,'claude-sonnet-4-20250514');
+          const fixResults=await convertBatch(fixOrigList,claudeKey,nid,nsec,'claude-sonnet-5-5');
           needFix.forEach((ri,bi)=>{
             const found=fixResults.find(r=>r.i===(bi+1));
             let name=found?fixLength(found.name||'',results[ri]?results[ri].orig:''):'';
@@ -1018,7 +1022,7 @@ async function retrySelected(){
   updateStats();
 
   const batchSize=parseInt(document.getElementById('batchSize').value);
-  const model='claude-sonnet-4-20250514';
+  const model='claude-sonnet-5-5';
   const batches=[];
   for(let i=0;i<targets.length;i+=batchSize)batches.push(targets.slice(i,i+batchSize));
 
@@ -1088,7 +1092,7 @@ async function retryFiltered(){
   updateStats();
 
   const batchSize=parseInt(document.getElementById('batchSize').value);
-  const model='claude-sonnet-4-20250514'; // 재시도는 항상 Sonnet
+  const model='claude-sonnet-5-5'; // 재시도는 항상 Sonnet
   const batches=[];
   for(let i=0;i<targets.length;i+=batchSize)batches.push(targets.slice(i,i+batchSize));
 
